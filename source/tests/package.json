@@ -1,0 +1,7 @@
+{
+  "name": "real-search-portal-tests",
+  "private": true,
+  "dependencies": {
+    "linkedom": "0.18.12"
+  }
+}

@@ -1,0 +1,20 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs');
+const id='11111111-2222-4333-8444-555555555555';
+function setup(options={}){
+ let handler;const calls=[],listing={id,photos:[{path:id+'/master.png'}]};
+ const admin={from(table){const q={select(){return q},eq(){return q},update(value){calls.push(['update',value]);Object.assign(listing,value);return q},maybeSingle:async()=>({data:table==='portal_roles'?{role:options.role||'admin'}:options.missing?null:listing})};return q},storage:{from(bucket){return {list:async(prefix)=>{calls.push(['list',bucket,prefix]);return {data:[{id:'file',name:'master.png'}]}},remove:async paths=>{calls.push(['remove',bucket,paths]);if(options.storageError)return {error:{message:'Storage unavailable'}};return {}}}}},rpc:async(name,args)=>{calls.push(['rpc',name,args]);return options.noSetup&&name==='portal_v19_management_ready'?{error:{message:'missing'}}:{data:{ok:true}}}};
+ const caller={auth:{getUser:async()=>options.invalid?{data:{user:null},error:Error('invalid')}:{data:{user:{id:'admin-id'}}}}};
+ const code=fs.readFileSync('supabase/functions/manage-listing/index.ts','utf8').replace(/^import .*;\n/,'');
+ vm.runInNewContext(code,{Deno:{env:{get:k=>({SUPABASE_URL:'https://example.invalid',SUPABASE_ANON_KEY:'anon',SUPABASE_SERVICE_ROLE_KEY:'service'})[k]},serve:fn=>handler=fn},createClient:(url,key)=>key==='service'?admin:caller,Response,Date,Error});
+ return {calls,listing,request:async(action='delete',extra={})=>{const res=await handler(new Request('https://example.invalid/function',{method:'POST',headers:{Authorization:'Bearer admin',Origin:'https://fasaldesignerinfo-maker.github.io',...extra.headers},body:JSON.stringify({id,action,...extra.body})}));return {status:res.status,body:await res.json()}}};
+}
+test('denies non-admin before storage or RPC access',async()=>{const s=setup({role:'head'}),r=await s.request();assert.equal(r.status,403);assert.equal(s.calls.length,0)});
+test('denies invalid sessions',async()=>{const s=setup({invalid:true});assert.equal((await s.request()).status,401);assert.equal(s.calls.length,0)});
+test('denies unknown origins',async()=>{const s=setup();assert.equal((await s.request('delete',{headers:{Origin:'https://other.invalid'}})).status,403)});
+test('rejects malformed listing identifiers',async()=>{const s=setup();assert.equal((await s.request('delete',{body:{id:'../other'}})).status,400);assert.equal(s.calls.length,0)});
+test('photo cleanup updates references only after successful file removal',async()=>{const s=setup();const r=await s.request('photos');assert.equal(r.body.ok,true);assert.equal(r.body.removed,1);assert.equal(s.calls[0][0],'remove');assert.equal(s.calls[1][0],'update');assert.deepEqual(JSON.parse(JSON.stringify(s.calls[1][1].photos)),[])});
+test('refuses photo paths outside the listing folder',async()=>{const s=setup();s.listing.photos=[{path:'other/photo.png'}];assert.equal((await s.request('photos')).status,409);assert.equal(s.calls.length,0)});
+test('requires setup before deleting any storage objects',async()=>{const s=setup({noSetup:true});assert.equal((await s.request()).status,409);assert.equal(s.calls.filter(c=>c[0]==='remove').length,0)});
+test('permanent deletion removes files from both buckets before atomic record cleanup',async()=>{const s=setup();const r=await s.request();assert.equal(r.body.ok,true);assert.deepEqual(s.calls.filter(c=>c[0]==='remove').map(c=>c[1]),['listing-files','design-files']);assert.equal(s.calls.at(-1)[1],'finalize_listing_removal');assert.equal(s.calls.at(-1)[2].p_listing,id)});
+test('storage error preserves database record and reports failure',async()=>{const s=setup({storageError:true});assert.equal((await s.request()).status,500);assert.equal(s.calls.some(c=>c[1]==='finalize_listing_removal'),false)});
+test('retry of an already-deleted listing succeeds without touching storage',async()=>{const s=setup({missing:true});assert.equal((await s.request()).body.already_removed,true);assert.equal(s.calls.length,0)});

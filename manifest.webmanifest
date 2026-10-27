@@ -1,0 +1,24 @@
+{
+  "id": "./",
+  "name": "Real Search Property Portal",
+  "short_name": "Real Search",
+  "start_url": "./#home",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#121413",
+  "theme_color": "#121413",
+  "icons": [
+    {
+      "src": "assets/push-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/push-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
